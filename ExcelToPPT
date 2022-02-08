@@ -1,0 +1,599 @@
+Sub makePowerPoint()
+' creates a PowerPoint containing all charts and images, with one chart per Excel tab per slide
+' (eg. three tabs would have three charts on each slide)
+    
+    ' makes program slow down and retry on error, since errors are often caused by VBA trying to run too quickly '
+    On Error GoTo waitThenGo
+    
+    ' initialize variables '
+    Dim PPApp As PowerPoint.Application
+    Dim PPPresentation As PowerPoint.Presentation
+    Dim PPSlide  As PowerPoint.Slide
+    Dim PPShape As PowerPoint.shape
+    Dim PPCharts As Excel.ChartObject
+    Dim templateLoc As String
+    Dim ws As Worksheet
+    Dim layout As CustomLayout
+    Dim index As Integer
+    Dim wbname As String
+    Dim titletxt As String
+    Dim wb As Workbook
+    Dim skateOptions() As String
+    Dim numVersions As Integer
+    Dim version As String
+    Dim i As Integer
+    Dim chartName As String
+    Dim topDistance, leftDistance As Single
+    Dim shape1, shape2 As String
+    Dim r As Range
+    Dim versions As Collection, sizes As Collection, models As Collection
+    Dim msg As String
+    Dim lastrow As Integer
+    
+    ' obtain datasheet name '
+    If datasheet = "" Then
+        If Sheets("Calc").Range("M2").value = "" Then
+            linkSheet
+        Else
+            datasheet = Sheets("Calc").Range("M2")
+        End If
+    End If
+    
+    ' get available versions '
+    Sheets("Criteria").Range("E5").ClearContents
+    filterAll
+    
+    Set versions = New Collection
+    With Worksheets(datasheet)
+        lastrow = .Range("A" & Worksheets(datasheet).Rows.count).End(xlUp).Row
+    End With
+
+    On Error Resume Next
+    For Each r In Sheets(datasheet).Range("E2:E" & lastrow)
+        v = r.value
+        If r.EntireRow.Hidden = False Then
+            versions.add v, CStr(v)
+        End If
+    Next
+    On Error GoTo -1
+    'MsgBox (versions.count & versions.Item(1))
+    
+    ' get available sizes '
+    Set sizes = New Collection
+    With Worksheets(datasheet)
+        lastrow = .Range("A" & Worksheets(datasheet).Rows.count).End(xlUp).Row
+    End With
+
+    On Error Resume Next
+    For Each r In Sheets(datasheet).Range("F2:F" & lastrow)
+        v = r.value
+        If r.EntireRow.Hidden = False Then
+            sizes.add v, CStr(v)
+        End If
+    Next
+    On Error GoTo -1
+    
+    ' get ticket # '
+    ticketTxt = Sheets("Info").Range("N7").value
+    
+    ' get model(s) '
+    Set models = New Collection
+    With Worksheets(datasheet)
+        lastrow = .Range("A" & Worksheets(datasheet).Rows.count).End(xlUp).Row
+    End With
+
+    On Error Resume Next
+    For Each r In Sheets(datasheet).Range("D2:D" & lastrow)
+        v = r.value
+        If r.EntireRow.Hidden = False Then
+            models.add v, CStr(v)
+        End If
+    Next
+    On Error GoTo -1
+    For ran = 1 To models.count
+        If Not ran = 1 Then
+            modelVersionTxt = modelVersionTxt & " & " & models(ran)
+        Else
+            modelVersionTxt = models(ran)
+        End If
+    Next ran
+    If numVersions = 1 Then modelVersionTxt = modelVersionTxt & " " & skateOptions(1)
+    modelVersionTxt = modelVersionTxt & " " & "Fit Test"
+    
+    ' define variables '
+    Set wb = ActiveWorkbook
+    Set ws = wb.Sheets("Summary")
+    numVersions = versions.count
+    ReDim skateOptions(1 To numVersions)
+    ' get version names '
+    For i = 1 To numVersions
+        skateOptions(i) = versions.Item(i)
+    Next i
+    
+    ' create presentation '
+    Set PPApp = New PowerPoint.Application
+    PPApp.Visible = True
+    PPApp.WindowState = ppWindowMaximized
+    Set PPPresentation = PPApp.Presentations.add
+    
+    ' title side '
+    Set PPSlide = PPPresentation.Slides.add(1, ppLayoutTitle)
+    sizeTxt = "Size: " & WorksheetFunction.Min(CollectionToArray(sizes)) & "-" & WorksheetFunction.Max(CollectionToArray(sizes))
+    PPSlide.Shapes(1).TextFrame.TextRange.Text = "Skate Version Comparison"
+    With PPSlide.Shapes(1).TextFrame.TextRange.Font
+        .Size = 60
+        .Color.RGB = RGB(150, 0, 0)
+        .name = "Verdana"
+    End With
+    PPSlide.Shapes(2).TextFrame.TextRange.Text = ticketTxt & vbNewLine & modelVersionTxt & vbNewLine & sizeTxt
+    PPSlide.Shapes(2).TextFrame.TextRange.Font.Bold = msoTrue
+    PPSlide.Shapes(2).TextFrame.TextRange.Font.name = "Verdana"
+    PPSlide.Shapes(2).TextFrame.TextRange.Font.Color.RGB = RGB(120, 120, 120)
+    index = 1
+    
+    ' ==== FIRST RUNTHROUGH: CREATE NEW SLIDES ==== '
+        
+    ' apply version as criteria then filter data '
+    version = skateOptions(1)
+    Sheets("Criteria").Range("E5").Formula = version
+    filterAll
+    
+    ' make heat map slide '
+    PPApp.ActivePresentation.Slides.add PPApp.ActivePresentation.Slides.count + 1, ppLayoutText
+    PPApp.ActiveWindow.View.GotoSlide PPApp.ActivePresentation.Slides.count
+    Set PPSlide = PPApp.ActivePresentation.Slides(PPApp.ActivePresentation.Slides.count)
+    
+    ' set heat map title '
+    PPSlide.Shapes(1).TextFrame.TextRange.Text = "Pressure Locations"
+    
+    ' copy in heat map image '
+    Sheets("Visualization").Range("D2:V44").CopyPicture Appearance:=xlScreen, Format:=xlPicture
+    PPSlide.Shapes.Paste
+    With PPSlide.Shapes(PPSlide.Shapes.count)
+        w = .Width
+        h = .Height
+        topDistance = .Top
+        leftDistance = .Left
+        shape1 = .name
+    End With
+    
+    ' add text box for heat map skate version '
+    PPSlide.Shapes.AddTextbox(msoTextOrientationHorizontal, leftDistance, topDistance + h, w, h).Select
+    With PPSlide.Shapes(PPSlide.Shapes.count)
+        .TextFrame.TextRange.Text = version
+        shape2 = .name
+    End With
+    PPSlide.Shapes.Range(Array(shape1, shape2)).Group
+    
+    For Each PPCharts In ws.ChartObjects 'for each chart in summary
+        ' make chart slide '
+        PPApp.ActivePresentation.Slides.add PPApp.ActivePresentation.Slides.count + 1, ppLayoutText
+        PPApp.ActiveWindow.View.GotoSlide PPApp.ActivePresentation.Slides.count
+        Set PPSlide = PPApp.ActivePresentation.Slides(PPApp.ActivePresentation.Slides.count)
+        
+        ' add in chart '
+        PPCharts.Copy
+        slideTitle = PPCharts.Chart.ChartTitle.Text
+        PPSlide.Shapes(1).TextFrame.TextRange.Text = slideTitle
+        PPSlide.Select
+        
+        On Error GoTo pasteImage
+        Application.Wait (Now + TimeValue("0:00:01"))
+        PPSlide.Shapes.PasteSpecial(DataType:=ppPasteShape, link:=msoFalse).Select
+        
+        ' chart title '
+        chartName = version & ": " & PPSlide.Shapes(PPSlide.Shapes.count).Chart.ChartTitle.Text
+        ' slide title '
+        With PPSlide.Shapes(PPSlide.Shapes.count).Chart
+            .HasTitle = False
+            .HasTitle = True
+            .ChartTitle.Text = chartName
+            .ChartData.BreakLink
+        End With
+        
+next1:
+        On Error GoTo -1
+    Next PPCharts
+    
+    ' error block '
+    GoTo check
+pasteImage:
+        ' paste chart as image '
+        PPCharts.CopyPicture
+        PPSlide.Shapes.Paste.Select
+        With PPSlide.Shapes(PPSlide.Shapes.count)
+            shape1 = .name
+            h = .Height
+            w = .Width
+            topDistance = .Top + h
+            leftDistance = .Left
+        End With
+        
+        ' add textbox with version '
+        PPSlide.Shapes.AddTextbox(msoTextOrientationHorizontal, leftDistance, topDistance, w, h).Select
+        With PPSlide.Shapes(PPSlide.Shapes.count)
+            shape2 = .name
+            .TextFrame.TextRange.Text = version
+        End With
+        
+        ' merge image and textbox '
+        PPSlide.Shapes.Range(Array(shape1, shape2)).Group.Select
+        
+        
+        Resume next1
+check:
+    
+    ' ==== NEXT RUNTHROUGHS: ADD CHARTS TO EXISTING SLIDES ==== '
+    
+    counter = 1
+    If i > 1 Then
+        For i = 2 To numVersions
+            version = skateOptions(i)
+            If Not version = "" Then
+                counter = counter + 1
+                
+                ' apply version as criteria then filter data '
+                Sheets("Criteria").Range("E5").Formula = version
+                filterAll
+                refreshPivots
+                If Not Range("Questionnaire[#All]").Rows.count <= 1 Then
+                    
+                    ' go to heat map slide '
+                    PPApp.ActiveWindow.View.GotoSlide 2
+                    Set PPSlide = PPApp.ActivePresentation.Slides(2)
+                    
+                    ' copy in heat map image '
+                    Sheets("Visualization").Range("D2:V44").CopyPicture Appearance:=xlScreen, Format:=xlPicture
+                    PPSlide.Shapes.Paste
+                    With PPSlide.Shapes(PPSlide.Shapes.count)
+                        w = .Width
+                        h = .Height
+                        topDistance = .Top
+                        leftDistance = .Left
+                        shape1 = .name
+                    End With
+                    
+                    ' add text box for heat map skate version '
+                    PPSlide.Shapes.AddTextbox(msoTextOrientationHorizontal, leftDistance, topDistance + h, w, h).Select
+                    With PPSlide.Shapes(PPSlide.Shapes.count)
+                        .TextFrame.TextRange.Text = version
+                        shape2 = .name
+                    End With
+                    PPSlide.Shapes.Range(Array(shape1, shape2)).Group
+                    
+                    index = 0
+                    For Each PPCharts In ws.ChartObjects 'for each chart in summary
+                        ' go to chart slide '
+                        PPApp.ActiveWindow.View.GotoSlide index + 3
+                        Set PPSlide = PPApp.ActivePresentation.Slides(index + 3)
+                        
+                        ' add in chart '
+                        PPCharts.Copy
+                        On Error GoTo pasteImage2
+                        Application.Wait (Now + TimeValue("0:00:01"))
+                        PPSlide.Shapes.PasteSpecial(DataType:=ppPasteShape, link:=msoFalse).Select
+                        
+                        ' chart title '
+                        chartName = version & ": " & PPSlide.Shapes(PPSlide.Shapes.count).Chart.ChartTitle.Text
+                        ' slide title '
+                        With PPSlide.Shapes(PPSlide.Shapes.count).Chart
+                            .HasTitle = False
+                            .HasTitle = True
+                            .ChartTitle.Text = chartName
+                            .ChartData.BreakLink
+                        End With
+                        
+next2:
+                        On Error GoTo -1
+                        index = index + 1
+                    Next PPCharts
+                    
+                    ' error block '
+                    GoTo check2
+pasteImage2:
+                    ' paste as image '
+                    ppchart.CopyPicture
+                    PPSlide.Shapes.Paste.Select
+                    With PPSlide.Shapes(PPSlide.Shapes.count)
+                        shape1 = .name
+                        h = .Height
+                        w = .Width
+                        topDistance = .Top + h
+                        leftDistance = .Left
+                    End With
+                    
+                    ' add textbox with version '
+                    PPSlide.Shapes.AddTextbox(msoTextOrientationHorizontal, leftDistance, topDistance, w, h).Select
+                    With PPSlide.Shapes(PPSlide.Shapes.count)
+                        shape2 = .name
+                        .TextFrame.TextRange.Text = version
+                    End With
+                    
+                    ' merge image and textbox '
+                    PPSlide.Shapes.Range(Array(shape1, shape2)).Group
+                    
+                    Resume next2
+check2:
+                End If
+            End If
+        Next i
+    End If
+    
+    ' ==== FINAL STEP: REPOSITION CHARTS/TEXTBOXES ==== '
+    
+    numslides = PPPresentation.Slides.count
+    
+    ' 1: if one version, chart next to textbox
+    If counter = 1 Then
+        For i = 2 To numslides
+            PPApp.ActiveWindow.View.GotoSlide i
+            Set PPSlide = PPPresentation.Slides(i)
+            numShapes = PPSlide.Shapes.count
+            
+            With PPSlide.Shapes(numShapes)
+                .Width = 500
+                .Height = 300
+                .Left = 75
+                .Top = 125
+            End With
+            
+            With PPSlide.Shapes(numShapes - 1) 'textbox
+                .Width = 250
+                .Height = 350
+                .Left = 625
+                .Top = 125
+            End With
+            
+        Next i
+    End If
+    
+    ' if two versions, one row of two
+    If counter = 2 Then
+        For i = 2 To numslides
+            PPApp.ActiveWindow.View.GotoSlide i
+            Set PPSlide = PPPresentation.Slides(i)
+            numShapes = PPSlide.Shapes.count
+
+            ' align charts and resize '
+            With PPSlide.Shapes(numShapes)
+                .Width = 385
+                .Height = 250
+                .Left = 75
+                .Top = 125
+            End With
+
+            With PPSlide.Shapes(numShapes - 1)
+                .Width = 385
+                .Height = 250
+                .Left = 500
+                .Top = 125
+            End With
+            
+            With PPSlide.Shapes(2) 'textbox
+                .Width = 810
+                .Height = 200
+                .Left = 75
+                .Top = 425
+            End With
+            
+        Next i
+    End If
+    
+    ' if three versions, one row of three
+    If counter = 3 Then
+        For i = 2 To numslides
+            PPApp.ActiveWindow.View.GotoSlide i
+            Set PPSlide = PPPresentation.Slides(i)
+            numShapes = PPSlide.Shapes.count
+
+            ' align charts and resize '
+            With PPSlide.Shapes(numShapes)
+                .Width = 300
+                .Height = 200
+                .Left = 0
+                .Top = 125
+            End With
+
+            With PPSlide.Shapes(numShapes - 1)
+                .Width = 300
+                .Height = 200
+                .Left = 330
+                .Top = 125
+            End With
+
+            With PPSlide.Shapes(numShapes - 2)
+                .Width = 300
+                .Height = 200
+                .Left = 660
+                .Top = 125
+            End With
+
+            With PPSlide.Shapes(2) 'textbox
+                .Width = 810
+                .Height = 150
+                .Left = 75
+                .Top = 350
+            End With
+            
+        Next i
+    End If
+    
+    ' if four versions, two rows of two charts
+    If counter = 4 Then
+        For i = 2 To numslides
+            PPApp.ActiveWindow.View.GotoSlide i
+            Set PPSlide = PPPresentation.Slides(i)
+            numShapes = PPSlide.Shapes.count
+            
+            With PPSlide.Shapes(numShapes)
+                .Width = 385
+                .Height = 175
+                .Left = 75
+                .Top = 125
+            End With
+            
+            With PPSlide.Shapes(numShapes - 1)
+                .Width = 385
+                .Height = 175
+                .Left = 500
+                .Top = 125
+            End With
+            
+            With PPSlide.Shapes(numShapes - 2)
+                .Width = 385
+                .Height = 175
+                .Left = 75
+                .Top = 300
+            End With
+            
+            With PPSlide.Shapes(numShapes - 3)
+                .Width = 385
+                .Height = 175
+                .Left = 500
+                .Top = 300
+            End With
+            
+            With PPSlide.Shapes(2) 'textbox
+                .Width = 810
+                .Height = 40
+                .Left = 75
+                .Top = 480
+            End With
+            
+        Next i
+    End If
+    
+    ' if five versions, a row of two over a row of three
+    If counter = 5 Then
+        For i = 2 To numslides
+            PPApp.ActiveWindow.View.GotoSlide i
+            Set PPSlide = PPPresentation.Slides(i)
+            numShapes = PPSlide.Shapes.count
+            
+            With PPSlide.Shapes(numShapes)
+                .Width = 385
+                .Height = 200
+                .Left = 75
+                .Top = 125
+            End With
+            
+            With PPSlide.Shapes(numShapes - 1)
+                .Width = 385
+                .Height = 200
+                .Left = 500
+                .Top = 125
+            End With
+            
+            With PPSlide.Shapes(numShapes - 2)
+                .Width = 300
+                .Height = 175
+                .Left = 0
+                .Top = 325
+            End With
+            
+            With PPSlide.Shapes(numShapes - 3)
+                .Width = 300
+                .Height = 175
+                .Left = 330
+                .Top = 325
+            End With
+            
+            With PPSlide.Shapes(numShapes - 4)
+                .Width = 300
+                .Height = 175
+                .Left = 660
+                .Top = 325
+            End With
+            
+            With PPSlide.Shapes(2) 'textbox
+                .Width = 810
+                .Height = 40
+                .Left = 75
+                .Top = 500
+            End With
+            
+        Next i
+    End If
+    
+    ' if six versions, two rows of three
+    If counter = 6 Then
+        For i = 2 To numslides
+            PPApp.ActiveWindow.View.GotoSlide i
+            Set PPSlide = PPPresentation.Slides(i)
+            numShapes = PPSlide.Shapes.count
+            
+            With PPSlide.Shapes(numShapes)
+                .Width = 300
+                .Height = 175
+                .Left = 0
+                .Top = 125
+            End With
+            
+            With PPSlide.Shapes(numShapes - 1)
+                .Width = 300
+                .Height = 175
+                .Left = 330
+                .Top = 125
+            End With
+            
+            With PPSlide.Shapes(numShapes - 2)
+                .Width = 300
+                .Height = 175
+                .Left = 660
+                .Top = 125
+            End With
+            
+            With PPSlide.Shapes(numShapes - 3)
+                .Width = 300
+                .Height = 175
+                .Left = 0
+                .Top = 325
+            End With
+            
+            With PPSlide.Shapes(numShapes - 4)
+                .Width = 300
+                .Height = 175
+                .Left = 330
+                .Top = 325
+            End With
+            
+            With PPSlide.Shapes(numShapes - 5)
+                .Width = 300
+                .Height = 175
+                .Left = 660
+                .Top = 325
+            End With
+            
+            With PPSlide.Shapes(2) 'textbox
+                .Width = 810
+                .Height = 40
+                .Left = 75
+                .Top = 500
+            End With
+            
+        Next i
+    End If
+    
+    ' error block: introduces wait time to prevent code tripping itself '
+    GoTo continue
+waitThenGo:
+    Application.Wait (Now + TimeValue("0:00:01"))
+    numWaits = numWaits + 1
+    If numWaits > 100 Then GoTo continue ' prevents infinite loop
+    Resume
+continue:
+
+End Sub
+
+Public Function CollectionToArray(myCol As Collection) As Variant
+
+    Dim result  As Variant
+    Dim cnt     As Long
+
+    ReDim result(myCol.count - 1)
+    For cnt = 0 To myCol.count - 1
+        result(cnt) = myCol(cnt + 1)
+    Next cnt
+    CollectionToArray = result
+
+End Function
