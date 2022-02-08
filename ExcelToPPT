@@ -1,5 +1,7 @@
 Sub makePowerPoint()
-' creates a PowerPoint containing all charts, with sections by worksheet
+' This is a Macro meant to be run in an Excel file
+'     - creates a PowerPoint containing all charts, with sections by worksheet
+'     - requires the Microsoft PowerPoint Library for reference (tools > references > Microsoft PowerPoint x Object Library)
     
     ' initialize variables '
     Dim PPApp As PowerPoint.Application
